@@ -4,6 +4,10 @@ from typing import Optional
 
 
 class PayRequestPayload(BaseModel):
-    paid_to: str
+    order_id: str
     amount: float
-    fake_error: Optional[bool]
+    payment_but_not_logger_err: Optional[bool]
+
+
+class GenerateOrderIdPayload(BaseModel):
+    amount: float
