@@ -10,16 +10,30 @@ from .models import (
 )
 
 class IdempotentPaymentService:
+    """
+    PAYMENT METHODS OF OUR SERVER
+    """
     def get_idempotent_payment(
         self,
         idempotency_key: str,
         db_session: Session
-    ) -> IdempotentPaymentStatus:
+    ) -> IdempotentPaymentStatus | None:
         existing = (
             db_session.query(IdempotentPaymentStatus)
             .filter_by(idempotency_key=idempotency_key).first()
         )
         return existing
+
+    def get_idempotent_payment_by_order_id(
+        self,
+        order_id: str,
+        db_session: Session
+    ) -> IdempotentPaymentStatus | None:
+        return (
+            db_session.query(IdempotentPaymentStatus)
+            .filter_by(order_id=order_id)
+            .first()
+        )
 
     def create_new_payment_status(
         self,
@@ -57,7 +71,10 @@ class IdempotentPaymentService:
 
 
 class PaymentGatewayService:
-    def get_payment_status_by_order_id(
+    """
+    PAYMENT GATEWAY SDK
+    """
+    def get_payment_record_by_order_id(
         self, 
         order_id: str,
         db_session: Session
@@ -68,8 +85,8 @@ class PaymentGatewayService:
             .first()
         )
         if not payment_record:
-            raise ValueError(404, "Payment record does not exist")
-        return payment_record.status
+            raise HTTPException(404, "Payment record does not exist")
+        return payment_record
     
     def generate_order_id(
         self,
@@ -100,11 +117,13 @@ class PaymentGatewayService:
             .filter_by(order_id=order_id)
             .first()
         )
-        if amount != payment_record.amount:
-            raise ValueError(400, "Invalid Amount")
+        if payment_record.status == PaymentRecordStatus.SUCCESS:
+            raise ValueError("Payment already processed")
+        if int(amount) != int(payment_record.amount):
+            raise ValueError("Invalid Amount")
             
         payment_record.payment_id = generate_payment_id
-        payment_record.status = PaymentRecordStatus.SUCCESS.value
+        payment_record.status = PaymentRecordStatus.SUCCESS
 
         db_session.commit()
         return generate_payment_id
