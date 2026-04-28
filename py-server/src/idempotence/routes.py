@@ -1,14 +1,29 @@
 from datetime import datetime
 from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import JSONResponse
+import json
 from sqlalchemy.exc import IntegrityError
 from typing import Annotated
 
 from .models import PaymentRecordStatus, PaymentProcessingStatus
-from .pydantic_models import PayRequestPayload, GenerateOrderIdPayload
-from .services import IdempotentPaymentService, PaymentGatewayService
+from .pydantic_models import (
+    PayRequestPayload, 
+    CachedPayRequestPayload, 
+    GenerateOrderIdPayload
+)
+from .services import (
+    PaymentServices,
+    IdempotentPaymentService,
+    IdempotentPaymentHelpers,
+    PaymentGatewayService
+)
 
 from config import db
+from config.cache import redis_client 
+from config.exceptions import (
+    ValidationException,
+    ServerError
+)
 from src import dependencies
 
 
@@ -59,7 +74,7 @@ async def idempotent_payment_route(
 ):
     idempotency_key = request.headers.get("idempotency-key")
     if not idempotency_key:
-        raise HTTPException(status_code=400, detail="Idempotency key required")
+        raise ValidationException("Idempotency key not provided")
 
     db_session = db.SessionLocal()
     payment_obj = None
@@ -71,7 +86,7 @@ async def idempotent_payment_route(
                 status=PaymentProcessingStatus.PROCESSING.value,
                 amount=int(payload.amount),
                 order_id=payload.order_id,
-                started_at=datetime.now(),
+                started_at=datetime.now().isoformat(),
                 db_session=db_session
             )
         except IntegrityError:
@@ -180,5 +195,58 @@ async def idempotent_payment_route(
             status_code=500,
             detail=f"An error occurred while processing: {e!s}"
         )
+    finally:
+        db_session.close()
+
+
+
+@router.post('idempotence/v2/pay')
+async def cached_idempotent_payment_route(
+    request: Request,
+    payload: CachedPayRequestPayload,
+    payment_services: Annotated[
+        PaymentServices,
+        Depends(dependencies.get_payment_services)
+    ]
+):
+    idempotency_key = request.headers.get("idempotency-key")
+    if not idempotency_key:
+        raise ValidationException("Idempotency key not provided")
+    
+    cache_key = f"idem:{idempotency_key}"
+    db_session = db.SessionLocal()
+    try:
+        acquired = redis_client.set(cache_key, json.dumps({
+            "status": PaymentProcessingStatus.PROCESSING.value,
+            "response": {
+                "status": PaymentProcessingStatus.PROCESSING.value,
+                "message": "Payment Processing"
+            },
+            "timestamp": datetime.now().isoformat()
+        }), nx=True, ex=84200)
+        if not acquired:
+            cached = redis_client.get(cache_key)
+            exists, response = payment_services.check_cached_payment_record(
+                cache=cached,
+                idempotency_key=cache_key,
+                db_session=db_session
+            )
+            if exists and response:
+                return response
+            else:
+                redis_client.delete(cache_key)
+        
+        response = await payment_services.make_new_payment(
+            idempotency_key=cache_key,
+            payload=payload,
+            db_session=db_session
+        )
+        return response
+    except HTTPException:
+        db_session.rollback()
+        raise
+    except Exception as e:
+        db_session.rollback()
+        raise ServerError(details=e)
     finally:
         db_session.close()

@@ -7,6 +7,7 @@ from config.db import Base, engine
 
 from src.idempotence import routes as idempotence_routes
 
+
 # Config
 app = FastAPI()
 app.add_middleware(
