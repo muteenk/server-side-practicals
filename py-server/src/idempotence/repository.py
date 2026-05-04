@@ -58,7 +58,7 @@ class PaymentRepository:
                 "status": status,
                 "message": "Payment Processing"
             },
-            "timestamp": started_at 
+            "timestamp": started_at.isoformat()
         }), nx=True, ex=84200)
         return payment_obj
 

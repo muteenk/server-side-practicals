@@ -138,7 +138,7 @@ class PaymentGatewayService:
             order_id=generated_order_id,
             amount=amount,
             status=PaymentRecordStatus.UNPROCESSED.value,
-            created_at=datetime.now().isoformat()
+            created_at=datetime.now()
         )
         db_session.add(payment_record)
         db_session.commit()
@@ -157,6 +157,16 @@ class PaymentGatewayService:
             .filter_by(order_id=order_id)
             .first()
         )
+
+        if not payment_record:
+            payment_record = PaymentRecord(
+                order_id=order_id,
+                amount=amount,
+                status=PaymentRecordStatus.UNPROCESSED.value,
+                created_at=datetime.now()
+            )
+            db_session.add(payment_record)
+
         if payment_record.status == PaymentRecordStatus.SUCCESS:
             raise ValueError("Payment already processed")
         if int(amount) != int(payment_record.amount):
@@ -193,7 +203,7 @@ class PaymentServices():
                 status=PaymentProcessingStatus.PROCESSING.value,
                 amount=int(payload.amount),
                 order_id=payload.order_id,
-                started_at=datetime.now().isoformat(),
+                started_at=datetime.now(),
                 db_session=db_session
             )
         except IntegrityError as e:

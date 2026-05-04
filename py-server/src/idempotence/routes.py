@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 import json
 from sqlalchemy.exc import IntegrityError
 from typing import Annotated
+import traceback
 
 from .models import PaymentRecordStatus, PaymentProcessingStatus
 from .pydantic_models import (
@@ -86,7 +87,7 @@ async def idempotent_payment_route(
                 status=PaymentProcessingStatus.PROCESSING.value,
                 amount=int(payload.amount),
                 order_id=payload.order_id,
-                started_at=datetime.now().isoformat(),
+                started_at=datetime.now(),
                 db_session=db_session
             )
         except IntegrityError:
@@ -155,6 +156,7 @@ async def idempotent_payment_route(
                 db_session=db_session
             )
         except Exception as e:
+            traceback.print_exc()
             payment_service.update_idempotent_payment_status(
                 payment_object=payment_obj,
                 status=PaymentProcessingStatus.FAILED.value,
@@ -200,7 +202,11 @@ async def idempotent_payment_route(
 
 
 
-@router.post('idempotence/v2/pay')
+#######################################
+#   UNDER PROGRESS [NOT COMPLETE YET]
+#######################################
+
+@router.post('/idempotence/v2/pay')
 async def cached_idempotent_payment_route(
     request: Request,
     payload: CachedPayRequestPayload,
