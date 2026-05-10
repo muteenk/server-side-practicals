@@ -6,6 +6,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from config.db import Base, engine
 
 from src.idempotence import routes as idempotence_routes
+from src.payment_gateway_strategy import (
+    legacy_hardcoded_router,
+    router as strategy_payment_router,
+    single_gateway_router,
+)
 
 
 # Config
@@ -21,6 +26,9 @@ Base.metadata.create_all(bind=engine)
 
 # Routes
 app.include_router(idempotence_routes.router, tags=['idempotence'])
+app.include_router(strategy_payment_router)
+app.include_router(legacy_hardcoded_router)
+app.include_router(single_gateway_router)
 
 # Test Route
 @app.get("/")
