@@ -11,6 +11,7 @@ from .payment_gateway_strategy.strategies import (
     PaymentGatewayStrategy,
     resolve_gateway_from_request,
 )
+from .retry_mechanisms.services import FlakyUpstreamService
 
 from config.cache import redis_client
 
@@ -58,3 +59,15 @@ def get_checkout_service(
 
 
 CheckoutServiceDep = Annotated[CheckoutService, Depends(get_checkout_service)]
+
+
+######### RETRY MECHANISMS (FLAKY UPSTREAM) ###########
+
+
+def get_flaky_upstream_service() -> FlakyUpstreamService:
+    return FlakyUpstreamService()
+
+
+FlakyUpstreamServiceDep = Annotated[
+    FlakyUpstreamService, Depends(get_flaky_upstream_service)
+]
