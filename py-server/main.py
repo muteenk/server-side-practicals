@@ -6,12 +6,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from config.db import Base, engine
 
 from src.idempotence import routes as idempotence_routes
-from src.payment_gateway_strategy import (
+from src.payment_gateway_strategy.routes import (
     legacy_hardcoded_router,
     router as strategy_payment_router,
     single_gateway_router,
 )
-from src.retry_mechanisms import router as retry_mechanisms_router
+from src.retry_mechanisms.routes import router as retry_mechanisms_router
 
 
 # Config
