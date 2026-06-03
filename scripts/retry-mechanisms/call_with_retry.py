@@ -48,6 +48,7 @@ def call_with_retry():
     """
     for _ in range(MAX_ATTEMPTS):
         try:
+            print(f"Attempt {_ + 1} of {MAX_ATTEMPTS}")
             body = finished(call_api(URL))
             if body is not None:
                 return body
@@ -67,6 +68,7 @@ def call_with_retry_delay():
     """
     for attempt in range(MAX_ATTEMPTS):
         try:
+            print(f"Attempt {attempt + 1} of {MAX_ATTEMPTS}")
             body = finished(call_api(URL))
             if body is not None:
                 return body
@@ -91,6 +93,7 @@ def call_with_retry_after():
     """
     for attempt in range(MAX_ATTEMPTS):
         try:
+            print(f"Attempt {attempt + 1} of {MAX_ATTEMPTS}")
             response = call_api(URL)
             body = finished(response)
             if body is not None:
@@ -140,6 +143,7 @@ def call_with_exponential_backoff():
     """
     for attempt in range(MAX_ATTEMPTS):
         try:
+            print(f"Attempt {attempt + 1} of {MAX_ATTEMPTS}")
             body = finished(call_api(URL))
             if body is not None:
                 return body
@@ -164,6 +168,7 @@ def call_with_jitter():
     """
     for attempt in range(MAX_ATTEMPTS):
         try:
+            print(f"Attempt {attempt + 1} of {MAX_ATTEMPTS}")
             body = finished(call_api(URL))
             if body is not None:
                 return body
@@ -188,6 +193,7 @@ def call_with_jitter_and_backoff():
     """
     for attempt in range(MAX_ATTEMPTS):
         try:
+            print(f"Attempt {attempt + 1} of {MAX_ATTEMPTS}")
             body = finished(call_api(URL))
             if body is not None:
                 return body
@@ -210,6 +216,7 @@ def retry(max_attempts=MAX_ATTEMPTS, delay_seconds=DELAY_SECONDS):
         def wrapper(*args, **kwargs):
             for attempt in range(max_attempts):
                 try:
+                    print(f"Attempt {attempt + 1} of {max_attempts}")
                     body = finished(func(*args, **kwargs))
                     if body is not None:
                         return body
