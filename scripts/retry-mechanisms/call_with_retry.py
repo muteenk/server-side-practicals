@@ -8,6 +8,7 @@ URL = "http://127.0.0.1:8000/retry-mechanisms/unreliable"
 MAX_ATTEMPTS = 5
 DELAY_SECONDS = 1
 RETRYABLE = {429, 502, 503, 504}
+CAP = 7
 
 
 ########## API CALLER FUNCTION ###########
@@ -119,11 +120,12 @@ def call_with_linear_backoff():
     """
     for attempt in range(MAX_ATTEMPTS):
         try:
+            print(f"Attempt {attempt + 1} of {MAX_ATTEMPTS}")
             body = finished(call_api(URL))
             if body is not None:
                 return body
             if attempt < MAX_ATTEMPTS - 1:
-                time.sleep(DELAY_SECONDS * (attempt + 1))
+                time.sleep(DELAY_SECONDS * (attempt + 1))   # 1 * 1, 1 * 2, ... 1 * 5
         except requests.exceptions.Timeout as e:
             print(f"Timeout: {e}")
             if attempt < MAX_ATTEMPTS - 1:
@@ -148,11 +150,11 @@ def call_with_exponential_backoff():
             if body is not None:
                 return body
             if attempt < MAX_ATTEMPTS - 1:
-                time.sleep(DELAY_SECONDS * 2**attempt)
+                time.sleep(DELAY_SECONDS * 2**(attempt + 1)) # 1 * 2^1 ... 1 * 2^5
         except requests.exceptions.Timeout as e:
             print(f"Timeout: {e}")
             if attempt < MAX_ATTEMPTS - 1:
-                time.sleep(DELAY_SECONDS * 2**attempt)
+                time.sleep(DELAY_SECONDS * 2**attempt)  # 1 * 2^1 ... 1 * 2^5
         except requests.exceptions.RequestException as e:
             print(f"Error: {e}")
             return None
@@ -173,11 +175,14 @@ def call_with_jitter():
             if body is not None:
                 return body
             if attempt < MAX_ATTEMPTS - 1:
-                time.sleep(DELAY_SECONDS * random.randint(1, 10))
+                delay = DELAY_SECONDS * random.randint(1, 10)
+                print("DELAY: ", delay)
+                time.sleep(delay)
         except requests.exceptions.Timeout as e:
             print(f"Timeout: {e}")
             if attempt < MAX_ATTEMPTS - 1:
-                time.sleep(DELAY_SECONDS * random.randint(1, 10))
+                delay = DELAY_SECONDS * random.randint(1, 10)
+                time.sleep(delay)
         except requests.exceptions.RequestException as e:
             print(f"Error: {e}")
             return None
@@ -198,12 +203,13 @@ def call_with_jitter_and_backoff():
             if body is not None:
                 return body
             if attempt < MAX_ATTEMPTS - 1:
-                wait = DELAY_SECONDS * 2**attempt * random.randint(1, 10)
+                wait = min(CAP, DELAY_SECONDS * 2**attempt * random.randint(1, 5))
+                print("WAIT: ", wait)
                 time.sleep(wait)
         except requests.exceptions.Timeout as e:
             print(f"Timeout: {e}")
             if attempt < MAX_ATTEMPTS - 1:
-                time.sleep(DELAY_SECONDS * 2**attempt * random.randint(1, 10))
+                time.sleep(min(DELAY_SECONDS * 2**attempt * random.randint(1, 5), CAP))
         except requests.exceptions.RequestException as e:
             print(f"Error: {e}")
             return None
@@ -221,11 +227,11 @@ def retry(max_attempts=MAX_ATTEMPTS, delay_seconds=DELAY_SECONDS):
                     if body is not None:
                         return body
                     if attempt < max_attempts - 1:
-                        time.sleep(delay_seconds)
+                        time.sleep(min(delay_seconds * 2**attempt * random.randint(1, 5), CAP))
                 except requests.exceptions.Timeout as e:
                     print(f"Timeout: {e}")
                     if attempt < max_attempts - 1:
-                        time.sleep(delay_seconds)
+                        time.sleep(min(delay_seconds * 2**attempt * random.randint(1, 5), CAP))
                 except requests.exceptions.RequestException as e:
                     print(f"Error: {e}")
                     return None
