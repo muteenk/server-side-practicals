@@ -12,6 +12,7 @@ from .payment_gateway_strategy.strategies import (
     resolve_gateway_from_request,
 )
 from .retry_mechanisms.services import FlakyUpstreamService
+from .distributed_tasks.services import SlowTaskService
 
 from config.cache import redis_client
 
@@ -71,3 +72,9 @@ def get_flaky_upstream_service() -> FlakyUpstreamService:
 FlakyUpstreamServiceDep = Annotated[
     FlakyUpstreamService, Depends(get_flaky_upstream_service)
 ]
+
+
+######### DISTRIBUTED TASKS DEPENDENCIES ###########
+
+def get_slow_task_service() -> SlowTaskService:
+    return SlowTaskService()

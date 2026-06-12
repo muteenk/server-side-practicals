@@ -12,6 +12,7 @@ from src.payment_gateway_strategy.routes import (
     single_gateway_router,
 )
 from src.retry_mechanisms.routes import router as retry_mechanisms_router
+from src.distributed_tasks.routes import router as distributed_tasks_router
 
 
 # Config
@@ -31,6 +32,7 @@ app.include_router(strategy_payment_router)
 app.include_router(legacy_hardcoded_router)
 app.include_router(single_gateway_router)
 app.include_router(retry_mechanisms_router)
+app.include_router(distributed_tasks_router)
 
 # Test Route
 @app.get("/")
