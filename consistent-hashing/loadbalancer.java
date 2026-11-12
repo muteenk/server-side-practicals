@@ -12,6 +12,10 @@ import java.net.http.HttpClient;
 import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -19,7 +23,7 @@ import java.util.Set;
 
 
 
-class Server {
+class LoadBalancer {
     private static final String[] URLS = {
         "http://127.0.0.1:9001",
         "http://127.0.0.1:9002",
@@ -30,6 +34,17 @@ class Server {
                                             .newBuilder()
                                             .connectTimeout(Duration.ofSeconds(10))
                                             .build();
+
+    public static int hash(String key) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] encodedHash = digest.digest(key.getBytes(StandardCharsets.UTF_8));
+            return ByteBuffer.wrap(encodedHash).getInt();
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-256 not available", e);
+        }
+    }
+                                        
              
     public void listen(int port) {
         try {
@@ -61,6 +76,30 @@ class Server {
             }
         }
 
+        private String getConsistentURL(Headers rHeaders) {
+            List<String> affinityHeaderList = rHeaders.get("x-user-id");
+            if (affinityHeaderList == null || affinityHeaderList.isEmpty())
+                return URLS[0];
+            String sessionAffinity = affinityHeaderList.getFirst();
+            return URLS[hash(sessionAffinity) % URLS.length];
+        }
+
+        private HttpRequest buildRequest(String uri, String method, InputStream requestBodyStream, Headers rHeaders) {
+            HttpRequest.Builder builder = HttpRequest
+            .newBuilder()
+            .uri(URI.create(uri))
+            .method(
+                method, 
+                HttpRequest.BodyPublishers.ofInputStream(() -> requestBodyStream)
+            );
+
+            for (Map.Entry<String, List<String>> entry : rHeaders.entrySet())
+                for (String value : entry.getValue())
+                    builder.setHeader(method, value);
+            
+            return builder.build();
+        }
+
         @Override 
         public void handle(HttpExchange exchange) throws IOException {
             URI requestURI = exchange.getRequestURI();
@@ -69,17 +108,8 @@ class Server {
             Headers requestHeaders = exchange.getRequestHeaders();
             InputStream requestBody = exchange.getRequestBody();
 
-            String urlString = URLS[0] + rawPath;
-            
-            HttpRequest request = HttpRequest
-            .newBuilder()
-            .uri(URI.create(urlString))
-            .method(
-                requestMethod, 
-                HttpRequest.BodyPublishers.ofInputStream(() -> requestBody)
-            )
-            .setHeader("x-user-id", requestHeaders.get("x-user-id").getFirst())
-            .build();
+            String urlString = getConsistentURL(requestHeaders) + rawPath;
+            HttpRequest request = buildRequest(urlString, requestMethod, requestBody, requestHeaders);
 
             try {
                 HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
@@ -100,12 +130,9 @@ class Server {
 
         }
     }
-}
 
-
-class LoadBalancer {
     void main(String[] args) {
-        Server server = new Server();
+        LoadBalancer server = new LoadBalancer();
         server.listen(9000);
     }
 }
