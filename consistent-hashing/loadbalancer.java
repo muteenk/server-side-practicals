@@ -1,14 +1,36 @@
 import com.sun.net.httpserver.HttpServer;
 import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpHeaders;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 
 
 class Server {
+    private static final String[] URLS = {
+        "http://127.0.0.1:9001",
+        "http://127.0.0.1:9002",
+        "http://127.0.0.1:9003"
+    };
+
+    private static final HttpClient client = HttpClient
+                                            .newBuilder()
+                                            .connectTimeout(Duration.ofSeconds(10))
+                                            .build();
+             
     public void listen(int port) {
         try {
             HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
@@ -23,11 +45,59 @@ class Server {
     }
 
     static class ServerHandler implements HttpHandler {
+
+        private static final Set<String> HOP_BY_HOP_HEADERS = Set.of(
+            "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
+            "te", "trailers", "transfer-encoding", "upgrade", "content-length"
+        );
+
+        private void translateHeaders(HttpHeaders clientResponseHeaders, Headers serverResponseHeaders) {
+            for (Map.Entry<String, List<String>> entry: clientResponseHeaders.map().entrySet()) {
+                String headerName = entry.getKey();
+                System.out.println("Header: " + headerName + " | " + entry.getValue());
+                if (HOP_BY_HOP_HEADERS.contains(headerName.toLowerCase()) || headerName.startsWith(":"))
+                    continue;
+                serverResponseHeaders.put(headerName, entry.getValue());
+            }
+        }
+
         @Override 
         public void handle(HttpExchange exchange) throws IOException {
             URI requestURI = exchange.getRequestURI();
             String rawPath = requestURI.getRawPath();
-            System.out.println(rawPath);
+            String requestMethod = exchange.getRequestMethod();
+            Headers requestHeaders = exchange.getRequestHeaders();
+            InputStream requestBody = exchange.getRequestBody();
+
+            String urlString = URLS[0] + rawPath;
+            
+            HttpRequest request = HttpRequest
+            .newBuilder()
+            .uri(URI.create(urlString))
+            .method(
+                requestMethod, 
+                HttpRequest.BodyPublishers.ofInputStream(() -> requestBody)
+            )
+            .setHeader("x-user-id", requestHeaders.get("x-user-id").getFirst())
+            .build();
+
+            try {
+                HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+                translateHeaders(response.headers(), exchange.getResponseHeaders());
+                byte[] body = response.body();
+                exchange.sendResponseHeaders(response.statusCode(), body.length == 0 ? -1 : body.length);
+                if (body.length > 0) {
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(body);
+                    }
+                }
+
+            } catch (InterruptedException ex) {
+                System.err.println("Request forwarding failed: " + ex.getMessage());
+                Thread.currentThread().interrupt();
+                exchange.sendResponseHeaders(500, -1);
+            }
+
         }
     }
 }
