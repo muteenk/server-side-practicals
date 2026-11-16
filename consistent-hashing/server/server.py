@@ -2,12 +2,13 @@ from typing import Annotated
 from fastapi import FastAPI, HTTPException, Header, status
 from pydantic import BaseModel
 from uuid import UUID, uuid4
+from db import lifespan, get_db, UserProfile
 
-app = FastAPI()
+app = FastAPI(lifespan=lifespan)
 
 #  Type definitions  #
 
-class UserProfile(BaseModel):
+class UserProfileRequest(BaseModel):
     username: str
     email: str
 
