@@ -1,8 +1,9 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy import String, Uuid, create_engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Mapped, mapped_column, sessionmaker, DeclarativeBase
-from uuid import uuid4
+from uuid import uuid4, UUID
 
 SQLALCHEMY_DATABASE_URL = "sqlite:///./database.db"
 engine = create_engine(
@@ -19,7 +20,7 @@ class Base(DeclarativeBase):
 class UserProfile(Base):
     __tablename__ = "user_profiles"
 
-    uuid: Mapped[uuid.UUID] = mapped_column(
+    uuid: Mapped[UUID] = mapped_column(
         Uuid, 
         primary_key=True, 
         default=uuid4
@@ -30,7 +31,12 @@ class UserProfile(Base):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=engine)
+    # Three uvicorn workers can race create_all on the shared SQLite file
+    try:
+        Base.metadata.create_all(bind=engine)
+    except OperationalError as e:
+        if "already exists" not in str(e):
+            raise
     yield
 
 

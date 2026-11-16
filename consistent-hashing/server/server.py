@@ -1,16 +1,28 @@
 from typing import Annotated
-from fastapi import FastAPI, HTTPException, Header, status
+import uuid
+from fastapi import Depends, FastAPI, HTTPException, Header, status
 from pydantic import BaseModel
 from uuid import UUID, uuid4
-from db import lifespan, get_db, UserProfile
+
+from sqlalchemy.orm import Session
+from sqlalchemy.sql import select
+from server.db import lifespan, get_db, UserProfile
 
 app = FastAPI(lifespan=lifespan)
+
+
 
 #  Type definitions  #
 
 class UserProfileRequest(BaseModel):
     username: str
     email: str
+
+class UserProfileResponse(UserProfileRequest):
+    uuid: UUID
+
+    class Config:
+        from_attributes = True
 
 
 #  Globals  #
@@ -32,28 +44,47 @@ def _header_check(x_user_id: UUID | None):
 
 @app.post("/users/add")
 def add_user(
-    profile: UserProfile
+    payload: UserProfileRequest,
+    db: Annotated[Session, Depends(get_db)]
 ):
-    generated_uuid: UUID | None = None
-    while generated_uuid == None:
-        generated_uuid = uuid4()
-        user: UserProfile | None = mem.get(generated_uuid, None)
-        if user:
-            generated_uuid = None
+    user_profile: UserProfile = UserProfile(
+        username=payload.username, email=payload.email
+    )
+    db.add(user_profile)
+    db.commit()
+    db.refresh(user_profile)
+    return {"success": True, "detail": "User created !", "data": {"user_id": user_profile.uuid}}
 
-    mem[generated_uuid] = profile
-    return {"success": True, "detail": "User created !", "data": {"user_id": generated_uuid}}
 
+def _response_payload(*, detail = None, data = None):
+    return {
+        "success": True,
+        "detail": detail,
+        "data": data
+    }
 
 @app.get("/users/profile")
-def get_user(x_user_id: Annotated[str | None, Header()]):
+def get_user(
+    x_user_id: Annotated[UUID | None, Header()],
+    db: Annotated[Session, Depends(get_db)]
+):
     _header_check(x_user_id)
-    user: UserProfile | None = mem.get(x_user_id, None)
+    user: UserProfile | None = None
+    user = mem.get(x_user_id, None)
+
+    if user:
+        print("CACHE HIT !")
+        return _response_payload(detail="User fetched !", data=user)
+
+
+    stmt = select(UserProfile).where(UserProfile.uuid == x_user_id)
+    user = db.scalars(stmt).first()
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="user_id not found"
+            status.HTTP_404_NOT_FOUND,
+            "User doesn't exist !"
         )
-    return {"success": True, "detail": "User fetched !", "data": {"user": user}}
-    
+    print("CACHE MISS !")
+    mem[user.uuid] = user
+    return _response_payload(detail="User fetched !", data=user)
     
