@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -31,15 +33,29 @@ class ConsistentHashing {
 }
 
 
-class LoadBalancer {
+class MiniLoadBalancer {
+    private final CopyOnWriteArrayList<String> servers;
+    private final AtomicInteger currentIndex = new AtomicInteger(0);
 
+    public MiniLoadBalancer(String[] urls) {
+        if (urls.length <= 0) 
+            throw new IllegalStateException("No URLs provided !");
+        servers = new CopyOnWriteArrayList<>(urls);
+    }
+
+    public String getNextURL() {
+        int size = servers.size();
+        if (size <= 0) throw new IllegalStateException("No URLs available !");
+        int idx = currentIndex.getAndUpdate(i -> (i + 1) % size) % size;
+        return servers.get(idx);
+    }
 }
 
 
 class ServerHandler implements HttpHandler {
     Logger logger = Logger.getLogger(ServerHandler.class.getName());
 
-    private static String[] URLS;
+    private final String[] urls;
 
     // Hop-by-hop + headers HttpClient sets itself (Host, Content-Length, …)
     private final Set<String> HOP_BY_HOP_HEADERS = Set.of(
@@ -53,8 +69,11 @@ class ServerHandler implements HttpHandler {
                                             .connectTimeout(Duration.ofSeconds(10))
                                             .build();
 
+    private final MiniLoadBalancer loadBalancer;
+
     public ServerHandler(String[] urls) {
-        URLS = urls;
+        this.loadBalancer = new MiniLoadBalancer(urls);
+        this.urls = urls;
     }
 
     private void translateHeaders(HttpHeaders clientResponseHeaders, Headers serverResponseHeaders) {
@@ -76,18 +95,12 @@ class ServerHandler implements HttpHandler {
         }
     }
 
-    private static String scheduler() {
-        Random random = new Random();
-        int randomIdx = random.nextInt(URLS.length);
-        return URLS[randomIdx];
-    }
-
     private String getConsistentURL(Headers rHeaders) {
         List<String> affinityHeaderList = rHeaders.get("x-user-id");
         if (affinityHeaderList == null || affinityHeaderList.isEmpty())
-            return scheduler();
+            return loadBalancer.getNextURL();
         String sessionAffinity = affinityHeaderList.getFirst();
-        return URLS[hash(sessionAffinity) % URLS.length];
+        return this.urls[hash(sessionAffinity) % this.urls.length];
     }
 
     private HttpRequest buildRequest(String uri, String method, InputStream requestBodyStream, Headers rHeaders) {
@@ -122,7 +135,9 @@ class ServerHandler implements HttpHandler {
         try {
             HttpRequest request = buildRequest(urlString, requestMethod, requestBody, requestHeaders);
             HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+
             logger.log(Level.INFO, () -> ">> [" + response.statusCode() + "]  |  " + urlString);
+
             translateHeaders(response.headers(), exchange.getResponseHeaders());
             byte[] body = response.body();
             exchange.sendResponseHeaders(response.statusCode(), body.length == 0 ? -1 : body.length);
@@ -132,11 +147,15 @@ class ServerHandler implements HttpHandler {
                 }
             }
         } catch (InterruptedException ex) {
+
             logger.log(Level.SEVERE, () -> "Request interrupted: " + ex.getMessage());
+
             Thread.currentThread().interrupt();
             exchange.sendResponseHeaders(500, -1);
         } catch (Exception ex) {
+
             logger.log(Level.SEVERE, () -> "Request forwarding failed: " + ex.getMessage());
+
             exchange.sendResponseHeaders(502, -1);
         }
 
