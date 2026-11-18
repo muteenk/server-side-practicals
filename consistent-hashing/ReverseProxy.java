@@ -21,11 +21,23 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 
+
+class ConsistentHashing {
+
+}
+
+
+class LoadBalancer {
+
+}
 
 
 class ServerHandler implements HttpHandler {
+    Logger logger = Logger.getLogger(ServerHandler.class.getName());
 
     private static String[] URLS;
 
@@ -110,7 +122,7 @@ class ServerHandler implements HttpHandler {
         try {
             HttpRequest request = buildRequest(urlString, requestMethod, requestBody, requestHeaders);
             HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
-            System.out.println(">> [" + response.statusCode() + "]  |  " + urlString);
+            logger.log(Level.INFO, () -> ">> [" + response.statusCode() + "]  |  " + urlString);
             translateHeaders(response.headers(), exchange.getResponseHeaders());
             byte[] body = response.body();
             exchange.sendResponseHeaders(response.statusCode(), body.length == 0 ? -1 : body.length);
@@ -120,11 +132,11 @@ class ServerHandler implements HttpHandler {
                 }
             }
         } catch (InterruptedException ex) {
-            System.err.println("Request forwarding failed: " + ex.getMessage());
+            logger.log(Level.SEVERE, () -> "Request interrupted: " + ex.getMessage());
             Thread.currentThread().interrupt();
             exchange.sendResponseHeaders(500, -1);
         } catch (Exception ex) {
-            System.err.println("Request forwarding failed: " + ex.getMessage());
+            logger.log(Level.SEVERE, () -> "Request forwarding failed: " + ex.getMessage());
             exchange.sendResponseHeaders(502, -1);
         }
 
@@ -132,7 +144,9 @@ class ServerHandler implements HttpHandler {
 }
 
 
-class LoadBalancer {
+class ReverseProxy {
+    Logger logger = Logger.getLogger(ReverseProxy.class.getName());
+
     private final String[] URLS = {
         "http://127.0.0.1:9001",
         "http://127.0.0.1:9002",
@@ -145,15 +159,15 @@ class LoadBalancer {
             server.createContext("/", new ServerHandler(URLS));
             server.setExecutor(null);
             server.start();
-            System.out.println("Listening at " + port);
+            logger.log(Level.INFO, () -> "Listening at " + port);
 
         } catch (IOException ex) {
-            throw new RuntimeException("Failed to launch: " + ex.getMessage());
+            logger.log(Level.SEVERE, () -> "Failed to launch: " + ex.getMessage());
         }
     }
 
     void main(String[] args) {
-        LoadBalancer server = new LoadBalancer();
+        ReverseProxy server = new ReverseProxy();
         server.listen(9000);
     }
 }
