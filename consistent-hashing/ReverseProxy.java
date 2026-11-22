@@ -28,7 +28,12 @@ import java.util.logging.Logger;
 
 
 
-class ConsistentHashing {
+abstract class ServerHashing {
+    abstract String getServer(String sessionAffinity);
+}
+
+
+class ConsistentHashing extends ServerHashing{
 
     private final String[] hashRing;
 
@@ -53,23 +58,30 @@ class ConsistentHashing {
             throw new RuntimeException("SHA-256 not available", e);
         }
     }
+
+    public String getServer(String sessionAffinity) {
+        return "";
+    }
 }
 
 
-class ModuloHashing {
+class ModuloHashing extends ServerHashing {
 
-    private final String[] hashRing;
+    private final CopyOnWriteArrayList<String> servers;
 
-    public ModuloHashing(int ringSize) {
-        hashRing = new String[ringSize];
+    public ModuloHashing(String[] urls) {
+        if (urls.length <= 0) 
+            throw new IllegalStateException("No URLs provided !");
+
+        servers = new CopyOnWriteArrayList<>(urls);
     }
 
     public void addServer(String serverURL) {
-
+        servers.add(serverURL);
     }
 
     public void removeServer() {
-
+        servers.removeLast();
     }
 
     private int hash(String key) {
@@ -80,6 +92,10 @@ class ModuloHashing {
         } catch (NoSuchAlgorithmException e) {
             throw new RuntimeException("SHA-256 not available", e);
         }
+    }
+
+    public String getServer(String sessionAffinity) {
+        return servers.get(hash(sessionAffinity)%servers.size());
     }
 
 }
@@ -122,9 +138,11 @@ class ServerHandler implements HttpHandler {
                                             .build();
 
     private final MiniLoadBalancer loadBalancer;
+    private final ServerHashing serverHashing;
 
     public ServerHandler(String[] urls) {
         this.loadBalancer = new MiniLoadBalancer(urls);
+        this.serverHashing = new ModuloHashing(urls);
         this.urls = urls;
     }
 
@@ -137,22 +155,12 @@ class ServerHandler implements HttpHandler {
         }
     }
 
-    public static int hash(String key) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] encodedHash = digest.digest(key.getBytes(StandardCharsets.UTF_8));
-            return ByteBuffer.wrap(encodedHash).getInt();
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("SHA-256 not available", e);
-        }
-    }
-
     private String getConsistentURL(Headers rHeaders) {
         List<String> affinityHeaderList = rHeaders.get("x-user-id");
         if (affinityHeaderList == null || affinityHeaderList.isEmpty())
             return loadBalancer.getNextURL();
         String sessionAffinity = affinityHeaderList.getFirst();
-        return this.urls[hash(sessionAffinity) % this.urls.length];
+        return serverHashing.getServer(sessionAffinity);
     }
 
     private HttpRequest buildRequest(String uri, String method, InputStream requestBodyStream, Headers rHeaders) {
