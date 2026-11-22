@@ -56,6 +56,35 @@ class ConsistentHashing {
 }
 
 
+class ModuloHashing {
+
+    private final String[] hashRing;
+
+    public ModuloHashing(int ringSize) {
+        hashRing = new String[ringSize];
+    }
+
+    public void addServer(String serverURL) {
+
+    }
+
+    public void removeServer() {
+
+    }
+
+    private int hash(String key) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] encodedHash = digest.digest(key.getBytes(StandardCharsets.UTF_8));
+            return ByteBuffer.wrap(encodedHash).getInt();
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-256 not available", e);
+        }
+    }
+
+}
+
+
 class MiniLoadBalancer {
     private final CopyOnWriteArrayList<String> servers;
     private final AtomicInteger currentIndex = new AtomicInteger(0);
