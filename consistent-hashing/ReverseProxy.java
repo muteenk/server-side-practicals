@@ -84,18 +84,20 @@ class ModuloHashing extends ServerHashing {
         servers.removeLast();
     }
 
-    private int hash(String key) {
+    private long hash(String key) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] encodedHash = digest.digest(key.getBytes(StandardCharsets.UTF_8));
-            return ByteBuffer.wrap(encodedHash).getInt();
+            
+            int signed = ByteBuffer.wrap(encodedHash).getInt();
+            return Integer.toUnsignedLong(signed);
         } catch (NoSuchAlgorithmException e) {
             throw new RuntimeException("SHA-256 not available", e);
         }
     }
 
     public String getServer(String sessionAffinity) {
-        return servers.get(hash(sessionAffinity)%servers.size());
+        return servers.get((int) hash(sessionAffinity)%servers.size());
     }
 
 }
