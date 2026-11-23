@@ -13,12 +13,15 @@ user_ids: list[str] = []
 def _request_server(url: str, method: str, payload: dict | None, headers: dict | None):
     try:
         res = requests.request(method=method, url=url, json=payload, timeout=10, headers=headers)
-        data = res.json()
-        data = data['data']
-        user_ids.append(data['user_id'])
-        print("[ SUC ] >>> Request Success: ", res.text)    
+        res.raise_for_status()
+        body = res.json()
+        data = body.get("data") or {}
+        # POST /users/add returns user_id; GET /users/profile returns uuid
+        if method.lower() == "post" and "user_id" in data:
+            user_ids.append(data["user_id"])
+        print("[ SUC ] >>> Request Success: ", res.text)
     except Exception as e:
-        print("[ ERR ] >>> Request failed: ", str(e))    
+        print("[ ERR ] >>> Request failed: ", str(e))
 
 
 def add_users():

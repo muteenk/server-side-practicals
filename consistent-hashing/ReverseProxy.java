@@ -4,7 +4,6 @@ import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -19,9 +18,9 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -97,7 +96,8 @@ class ModuloHashing extends ServerHashing {
     }
 
     public String getServer(String sessionAffinity) {
-        return servers.get((int) hash(sessionAffinity)%servers.size());
+        int index = (int) (hash(sessionAffinity) % servers.size());
+        return servers.get(index);
     }
 
 }
@@ -137,6 +137,7 @@ class ServerHandler implements HttpHandler {
     private final HttpClient client = HttpClient
                                             .newBuilder()
                                             .connectTimeout(Duration.ofSeconds(10))
+                                            .followRedirects(HttpClient.Redirect.NEVER)
                                             .build();
 
     private final MiniLoadBalancer loadBalancer;
@@ -148,12 +149,12 @@ class ServerHandler implements HttpHandler {
         this.urls = urls;
     }
 
-    private void translateHeaders(HttpHeaders clientResponseHeaders, Headers serverResponseHeaders) {
-        for (Map.Entry<String, List<String>> entry: clientResponseHeaders.map().entrySet()) {
+    private void translateHeaders(HttpHeaders upstreamHeaders, Headers outboundHeaders) {
+        for (Map.Entry<String, List<String>> entry: upstreamHeaders.map().entrySet()) {
             String headerName = entry.getKey();
             if (HOP_BY_HOP_HEADERS.contains(headerName.toLowerCase()) || headerName.startsWith(":"))
                 continue;
-            serverResponseHeaders.put(headerName, entry.getValue());
+            outboundHeaders.put(headerName, entry.getValue());
         }
     }
 
@@ -165,14 +166,16 @@ class ServerHandler implements HttpHandler {
         return serverHashing.getServer(sessionAffinity);
     }
 
-    private HttpRequest buildRequest(String uri, String method, InputStream requestBodyStream, Headers rHeaders) {
+    private HttpRequest buildRequest(String uri, String method, byte[] requestBody, Headers rHeaders) {
+        HttpRequest.BodyPublisher bodyPublisher = requestBody.length == 0
+            ? HttpRequest.BodyPublishers.noBody()
+            : HttpRequest.BodyPublishers.ofByteArray(requestBody);
+
         HttpRequest.Builder builder = HttpRequest
-        .newBuilder()
-        .uri(URI.create(uri))
-        .method(
-            method, 
-            HttpRequest.BodyPublishers.ofInputStream(() -> requestBodyStream)
-        );
+            .newBuilder()
+            .uri(URI.create(uri))
+            .timeout(Duration.ofSeconds(10))
+            .method(method, bodyPublisher);
 
         for (Map.Entry<String, List<String>> entry : rHeaders.entrySet()) {
             String key = entry.getKey();
@@ -184,41 +187,51 @@ class ServerHandler implements HttpHandler {
         return builder.build();
     }
 
+    private void sendError(HttpExchange exchange, int status) {
+        try {
+            exchange.sendResponseHeaders(status, -1);
+        } catch (IOException ignored) {
+            // Client may already be gone.
+        }
+    }
+
     @Override 
     public void handle(HttpExchange exchange) throws IOException {
-        URI requestURI = exchange.getRequestURI();
-        String rawPath = requestURI.getRawPath();
+        String rawPath = exchange.getRequestURI().getRawPath();
         String requestMethod = exchange.getRequestMethod();
         Headers requestHeaders = exchange.getRequestHeaders();
-        InputStream requestBody = exchange.getRequestBody();
-
-        String urlString = getConsistentURL(requestHeaders) + rawPath;
+        boolean headersSent = false;
 
         try {
+            byte[] requestBody = exchange.getRequestBody().readAllBytes();
+            String urlString = getConsistentURL(requestHeaders) + rawPath;
+
             HttpRequest request = buildRequest(urlString, requestMethod, requestBody, requestHeaders);
             HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
 
             logger.log(Level.INFO, () -> ">> [" + response.statusCode() + "]  |  " + urlString);
 
             translateHeaders(response.headers(), exchange.getResponseHeaders());
-            byte[] body = response.body();
-            exchange.sendResponseHeaders(response.statusCode(), body.length == 0 ? -1 : body.length);
+            byte[] body = response.body() != null ? response.body() : new byte[0];
+            long responseLength = body.length == 0 ? -1 : body.length;
+
+            exchange.sendResponseHeaders(response.statusCode(), responseLength);
+            headersSent = true;
+
             if (body.length > 0) {
                 try (OutputStream os = exchange.getResponseBody()) {
                     os.write(body);
                 }
             }
         } catch (InterruptedException ex) {
-
             logger.log(Level.SEVERE, () -> "Request interrupted: " + ex.getMessage());
-
             Thread.currentThread().interrupt();
-            exchange.sendResponseHeaders(500, -1);
+            if (!headersSent) sendError(exchange, 500);
         } catch (Exception ex) {
-
-            logger.log(Level.SEVERE, () -> "Request forwarding failed: " + ex.getMessage());
-
-            exchange.sendResponseHeaders(502, -1);
+            logger.log(Level.SEVERE, () -> "Request forwarding failed: " + ex);
+            if (!headersSent) sendError(exchange, 502);
+        } finally {
+            exchange.close();
         }
 
     }
@@ -236,9 +249,9 @@ class ReverseProxy {
              
     public void listen(int port) {
         try {
-            HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
+            HttpServer server = HttpServer.create(new InetSocketAddress(port), 1024);
             server.createContext("/", new ServerHandler(URLS));
-            server.setExecutor(null);
+            server.setExecutor(Executors.newCachedThreadPool());
             server.start();
             logger.log(Level.INFO, () -> "Listening at " + port);
 
