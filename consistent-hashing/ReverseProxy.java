@@ -56,20 +56,22 @@ class ConsistentHashing extends ServerHashing{
     private final int RING_SIZE;
 
     public ConsistentHashing(int ringSize, String[] urls) {
+        if (ringSize < 1 || ringSize >= 1000)
+            throw new IllegalStateException("Ring Size must be between 1 and 1000");
         RING_SIZE = ringSize;
         for (String url : urls) {
-            int hashIdx = (int) (hashing.hashToLongSHA256(url) % (RING_SIZE-1));
+            int hashIdx = (int) (hashing.hashToLongSHA256(url) % (RING_SIZE));
             hashRing.put(hashIdx, url);
         }
     }
 
     public void addServer(String url) {
-        int hashIdx = (int) (hashing.hashToLongSHA256(url) % (RING_SIZE-1));
+        int hashIdx = (int) (hashing.hashToLongSHA256(url) % (RING_SIZE));
         hashRing.put(hashIdx, url);
     }
 
     public String getServer(String sessionAffinity) {
-        int hashIdx = (int) (hashing.hashToLongSHA256(sessionAffinity) % (RING_SIZE-1));
+        int hashIdx = (int) (hashing.hashToLongSHA256(sessionAffinity) % (RING_SIZE));
         Map.Entry<Integer, String> entry = hashRing.ceilingEntry(hashIdx);
         return entry.getValue();
     }
