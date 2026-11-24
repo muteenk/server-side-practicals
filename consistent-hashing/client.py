@@ -1,5 +1,3 @@
-from re import L
-from fastapi._compat.v2 import Url
 import requests
 from datetime import datetime
 import threading

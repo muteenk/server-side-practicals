@@ -146,7 +146,7 @@ class ServerHandler implements HttpHandler {
 
     public ServerHandler(String[] urls) {
         this.loadBalancer = new MiniLoadBalancer(urls);
-        this.serverHashing = new ModuloHashing(urls);
+        this.serverHashing = new ConsistentHashing(150, urls);
         this.urls = urls;
     }
 
