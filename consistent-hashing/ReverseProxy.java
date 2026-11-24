@@ -58,6 +58,8 @@ class ConsistentHashing extends ServerHashing{
     public ConsistentHashing(int ringSize, String[] urls) {
         if (ringSize < 1 || ringSize >= 1000)
             throw new IllegalStateException("Ring Size must be between 1 and 1000");
+        if (urls.length < 1)
+            throw new IllegalStateException("Atleast one urls must be provided");
         RING_SIZE = ringSize;
         for (String url : urls) {
             int hashIdx = (int) (hashing.hashToLongSHA256(url) % (RING_SIZE));
@@ -73,6 +75,7 @@ class ConsistentHashing extends ServerHashing{
     public String getServer(String sessionAffinity) {
         int hashIdx = (int) (hashing.hashToLongSHA256(sessionAffinity) % (RING_SIZE));
         Map.Entry<Integer, String> entry = hashRing.ceilingEntry(hashIdx);
+        if (entry == null) return hashRing.firstEntry().getValue();
         return entry.getValue();
     }
 }
