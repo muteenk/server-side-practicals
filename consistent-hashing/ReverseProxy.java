@@ -27,6 +27,21 @@ import java.util.logging.Logger;
 
 
 
+class Hashing {
+    public long hashToLongSHA256(String key) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] encodedHash = digest.digest(key.getBytes(StandardCharsets.UTF_8));
+            
+            int signed = ByteBuffer.wrap(encodedHash).getInt();
+            return Integer.toUnsignedLong(signed);
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-256 not available", e);
+        }
+    }
+}
+
+
 abstract class ServerHashing {
     abstract String getServer(String sessionAffinity);
 }
@@ -35,30 +50,24 @@ abstract class ServerHashing {
 class ConsistentHashing extends ServerHashing{
 
     private final String[] hashRing;
+    private final Hashing hashing = new Hashing();
 
-    public ConsistentHashing(int ringSize) {
+    public ConsistentHashing(int ringSize, String[] urls) {
         hashRing = new String[ringSize];
-    }
-
-    public void addServer(String serverURL) {
-
-    }
-
-    public void removeServer() {
-
-    }
-
-    private int hash(String key) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] encodedHash = digest.digest(key.getBytes(StandardCharsets.UTF_8));
-            return ByteBuffer.wrap(encodedHash).getInt();
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("SHA-256 not available", e);
+        for (String url : urls) {
+            int hashIdx = (int) (hashing.hashToLongSHA256(url) % (ringSize-1));
+            hashRing[hashIdx] = url;
         }
     }
 
+    public void addServer(String url) {
+        int hashIdx = (int) (hashing.hashToLongSHA256(url) % (hashRing.length-1));
+        hashRing[hashIdx] = url;
+    }
+
     public String getServer(String sessionAffinity) {
+        int hashIdx = (int) (hashing.hashToLongSHA256(sessionAffinity) % (hashRing.length-1));
+        
         return "";
     }
 }
@@ -67,6 +76,7 @@ class ConsistentHashing extends ServerHashing{
 class ModuloHashing extends ServerHashing {
 
     private final CopyOnWriteArrayList<String> servers;
+    private final Hashing hashing = new Hashing();
 
     public ModuloHashing(String[] urls) {
         if (urls.length <= 0) 
@@ -83,20 +93,8 @@ class ModuloHashing extends ServerHashing {
         servers.removeLast();
     }
 
-    private long hash(String key) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] encodedHash = digest.digest(key.getBytes(StandardCharsets.UTF_8));
-            
-            int signed = ByteBuffer.wrap(encodedHash).getInt();
-            return Integer.toUnsignedLong(signed);
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("SHA-256 not available", e);
-        }
-    }
-
     public String getServer(String sessionAffinity) {
-        int index = (int) (hash(sessionAffinity) % servers.size());
+        int index = (int) (hashing.hashToLongSHA256(sessionAffinity) % servers.size());
         return servers.get(index);
     }
 
