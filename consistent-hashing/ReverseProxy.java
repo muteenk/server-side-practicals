@@ -16,9 +16,11 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -49,26 +51,27 @@ abstract class ServerHashing {
 
 class ConsistentHashing extends ServerHashing{
 
-    private final String[] hashRing;
+    private final TreeMap<Integer, String> hashRing = new TreeMap<>();
     private final Hashing hashing = new Hashing();
+    private final int RING_SIZE;
 
     public ConsistentHashing(int ringSize, String[] urls) {
-        hashRing = new String[ringSize];
+        RING_SIZE = ringSize;
         for (String url : urls) {
-            int hashIdx = (int) (hashing.hashToLongSHA256(url) % (ringSize-1));
-            hashRing[hashIdx] = url;
+            int hashIdx = (int) (hashing.hashToLongSHA256(url) % (RING_SIZE-1));
+            hashRing.put(hashIdx, url);
         }
     }
 
     public void addServer(String url) {
-        int hashIdx = (int) (hashing.hashToLongSHA256(url) % (hashRing.length-1));
-        hashRing[hashIdx] = url;
+        int hashIdx = (int) (hashing.hashToLongSHA256(url) % (RING_SIZE-1));
+        hashRing.put(hashIdx, url);
     }
 
     public String getServer(String sessionAffinity) {
-        int hashIdx = (int) (hashing.hashToLongSHA256(sessionAffinity) % (hashRing.length-1));
-        
-        return "";
+        int hashIdx = (int) (hashing.hashToLongSHA256(sessionAffinity) % (RING_SIZE-1));
+        Map.Entry<Integer, String> entry = hashRing.ceilingEntry(hashIdx);
+        return entry.getValue();
     }
 }
 
