@@ -5,6 +5,7 @@ import com.sun.net.httpserver.HttpExchange;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.math.BigInteger;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -41,6 +42,16 @@ class Hashing {
             throw new RuntimeException("SHA-256 not available", e);
         }
     }
+
+    public BigInteger hashSHA256(String key) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] encodedHash = digest.digest(key.getBytes(StandardCharsets.UTF_8));
+            return new BigInteger(1, encodedHash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-256 not available", e);
+        }
+    }
 }
 
 
@@ -51,30 +62,32 @@ abstract class ServerHashing {
 
 class ConsistentHashing extends ServerHashing{
 
-    private final TreeMap<Integer, String> hashRing = new TreeMap<>();
+    private final TreeMap<BigInteger, String> hashRing = new TreeMap<>();
     private final Hashing hashing = new Hashing();
-    private final int RING_SIZE;
+    private final int VIRTUAL_NODES = 100;
 
-    public ConsistentHashing(int ringSize, String[] urls) {
-        if (ringSize < 1 || ringSize >= 1000)
-            throw new IllegalStateException("Ring Size must be between 1 and 1000");
+    public ConsistentHashing(String[] urls) {
         if (urls.length < 1)
             throw new IllegalStateException("Atleast one urls must be provided");
-        RING_SIZE = ringSize;
         for (String url : urls) {
-            int hashIdx = (int) (hashing.hashToLongSHA256(url) % (RING_SIZE));
-            hashRing.put(hashIdx, url);
+            for (int i = 0; i < VIRTUAL_NODES; i++) {
+                BigInteger hashIdx = hashing.hashSHA256(url + "#" + i);
+                hashRing.put(hashIdx, url);
+            }
+            
         }
     }
 
     public void addServer(String url) {
-        int hashIdx = (int) (hashing.hashToLongSHA256(url) % (RING_SIZE));
-        hashRing.put(hashIdx, url);
+        for (int i = 0; i < VIRTUAL_NODES; i++) {
+            BigInteger hashIdx = hashing.hashSHA256(url + "#" + i);
+            hashRing.put(hashIdx, url);
+        }
     }
 
     public String getServer(String sessionAffinity) {
-        int hashIdx = (int) (hashing.hashToLongSHA256(sessionAffinity) % (RING_SIZE));
-        Map.Entry<Integer, String> entry = hashRing.ceilingEntry(hashIdx);
+        BigInteger hashIdx = hashing.hashSHA256(sessionAffinity);
+        Map.Entry<BigInteger, String> entry = hashRing.ceilingEntry(hashIdx);
         if (entry == null) return hashRing.firstEntry().getValue();
         return entry.getValue();
     }
@@ -151,7 +164,7 @@ class ServerHandler implements HttpHandler {
 
     public ServerHandler(String[] urls) {
         this.loadBalancer = new MiniLoadBalancer(urls);
-        this.serverHashing = new ConsistentHashing(150, urls);
+        this.serverHashing = new ConsistentHashing(urls);
         this.urls = urls;
     }
 
