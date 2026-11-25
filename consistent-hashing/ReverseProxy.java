@@ -64,7 +64,7 @@ class ConsistentHashing extends ServerHashing{
 
     private final TreeMap<BigInteger, String> hashRing = new TreeMap<>();
     private final Hashing hashing = new Hashing();
-    private final int VIRTUAL_NODES = 100;
+    private static final int VIRTUAL_NODES = 100;
 
     public ConsistentHashing(String[] urls) {
         if (urls.length < 1)
@@ -72,6 +72,7 @@ class ConsistentHashing extends ServerHashing{
         for (String url : urls) {
             for (int i = 0; i < VIRTUAL_NODES; i++) {
                 BigInteger hashIdx = hashing.hashSHA256(url + "#" + i);
+                if (hashRing.containsKey(hashIdx)) continue;
                 hashRing.put(hashIdx, url);
             }
             
@@ -81,11 +82,13 @@ class ConsistentHashing extends ServerHashing{
     public void addServer(String url) {
         for (int i = 0; i < VIRTUAL_NODES; i++) {
             BigInteger hashIdx = hashing.hashSHA256(url + "#" + i);
+            if (hashRing.containsKey(hashIdx)) continue;
             hashRing.put(hashIdx, url);
         }
     }
 
     public String getServer(String sessionAffinity) {
+        if (hashRing.isEmpty()) throw new IllegalStateException("Hash ring is empty");
         BigInteger hashIdx = hashing.hashSHA256(sessionAffinity);
         Map.Entry<BigInteger, String> entry = hashRing.ceilingEntry(hashIdx);
         if (entry == null) return hashRing.firstEntry().getValue();
