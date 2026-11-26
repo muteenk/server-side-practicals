@@ -17,13 +17,11 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
 import java.util.Set;
-import java.util.TreeMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -65,7 +63,7 @@ abstract class ServerHashing {
 
 class ConsistentHashing extends ServerHashing{
 
-    private final TreeMap<BigInteger, String> hashRing = new TreeMap<>();
+    private final ConcurrentSkipListMap<BigInteger, String> hashRing = new ConcurrentSkipListMap<>();
     private final Hashing hashing = new Hashing();
     private static final int VIRTUAL_NODES = 100;
 
@@ -319,7 +317,10 @@ class ReverseProxy {
     }
 
     private void addServer(String url) {
-        if (!isValidURL(url)) logger.log(Level.SEVERE, () -> "Invalid URL provided: " + url);
+        if (!isValidURL(url)) {
+            logger.log(Level.SEVERE, () -> "Invalid URL provided: " + url);
+            return;
+        }
         SERVERS.add(url);
         lb.addServer(url);
         sh.addServer(url);
