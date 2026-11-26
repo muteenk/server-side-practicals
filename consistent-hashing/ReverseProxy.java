@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Scanner;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -322,6 +323,7 @@ class ReverseProxy {
         SERVERS.add(url);
         lb.addServer(url);
         sh.addServer(url);
+        logger.log(Level.INFO, () -> "Server '" + url + "' added");
     }
 
     private void removeServer(String url) {
@@ -341,10 +343,23 @@ class ReverseProxy {
         }
     }
 
+    private void cli() {
+        Scanner scanner = new Scanner(System.in);
+        while (true) {
+            System.out.print(">>> ");
+            String cmd = scanner.nextLine();
+            if (cmd.startsWith("ADD")) addServer(cmd.substring(4));
+            else logger.log(Level.INFO, "Illegal Command");
+            scanner.nextLine();
+        }
+    }
+
     void main(String[] args) {
         argParse(args);
         lb = new MiniLoadBalancer(SERVERS);
         sh = new ConsistentHashing(SERVERS);
+        Thread t = new Thread(() -> cli());
+        t.start();
         this.listen();
     }
 }

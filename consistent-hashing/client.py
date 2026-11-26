@@ -60,8 +60,9 @@ def get_users():
         t.join()
 
 if __name__ == "__main__":
-    add_users()
-    get_users()
-    print("\n\n FETCHING AGAIN >>>>> \n\n")
-    time.sleep(1)
-    get_users()
+    while True:
+        inp = input(">>> ")
+        if inp == 'a':
+            add_users()
+        elif inp == 'f':
+            get_users()
