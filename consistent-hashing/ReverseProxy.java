@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -66,8 +67,8 @@ class ConsistentHashing extends ServerHashing{
     private final Hashing hashing = new Hashing();
     private static final int VIRTUAL_NODES = 100;
 
-    public ConsistentHashing(String[] urls) {
-        if (urls.length < 1)
+    public ConsistentHashing(List<String> urls) {
+        if (urls.isEmpty())
             throw new IllegalStateException("Atleast one urls must be provided");
         for (String url : urls) {
             for (int i = 0; i < VIRTUAL_NODES; i++) {
@@ -129,8 +130,8 @@ class MiniLoadBalancer {
     private final CopyOnWriteArrayList<String> servers;
     private final AtomicInteger currentIndex = new AtomicInteger(0);
 
-    public MiniLoadBalancer(String[] urls) {
-        if (urls.length <= 0) 
+    public MiniLoadBalancer(List<String> urls) {
+        if (urls.isEmpty()) 
             throw new IllegalStateException("No URLs provided !");
         servers = new CopyOnWriteArrayList<>(urls);
     }
@@ -147,10 +148,8 @@ class MiniLoadBalancer {
 class ServerHandler implements HttpHandler {
     Logger logger = Logger.getLogger(ServerHandler.class.getName());
 
-    private final String[] urls;
-
     // Hop-by-hop + headers HttpClient sets itself (Host, Content-Length, …)
-    private final Set<String> HOP_BY_HOP_HEADERS = Set.of(
+    private static final Set<String> HOP_BY_HOP_HEADERS = Set.of(
         "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
         "te", "trailers", "transfer-encoding", "upgrade", "content-length",
         "host", "expect"
@@ -165,10 +164,9 @@ class ServerHandler implements HttpHandler {
     private final MiniLoadBalancer loadBalancer;
     private final ServerHashing serverHashing;
 
-    public ServerHandler(String[] urls) {
+    public ServerHandler(List<String> urls) {
         this.loadBalancer = new MiniLoadBalancer(urls);
         this.serverHashing = new ConsistentHashing(urls);
-        this.urls = urls;
     }
 
     private void translateHeaders(HttpHeaders upstreamHeaders, Headers outboundHeaders) {
@@ -262,12 +260,8 @@ class ServerHandler implements HttpHandler {
 
 class ReverseProxy {
     Logger logger = Logger.getLogger(ReverseProxy.class.getName());
-
-    private final String[] URLS = {
-        "http://127.0.0.1:9001",
-        "http://127.0.0.1:9002",
-        "http://127.0.0.1:9003"
-    };
+    private int proxyPort = 9000;
+    private final List<String> URLS = new ArrayList<>();
              
     public void listen(int port) {
         try {
@@ -282,8 +276,54 @@ class ReverseProxy {
         }
     }
 
+    private static boolean isValidURL(String url) {
+        try {
+            URI uri = new URI(url);
+            return uri.getScheme() != null && uri.getHost() != null;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static boolean isValidURLPort(String portStr) {
+        if (portStr == null || portStr.isEmpty()) {
+            return false;
+        }
+        try {
+            int port = Integer.parseInt(portStr);
+            return port >= 1 && port <= 65535; // Use port >= 0 if port 0 is allowed
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    private void argParse(String[] args) {
+
+        if (args.length % 2 != 0) throw new IllegalArgumentException("ARG FORMAT: -u <url1>,<url2>,<url3>,... -p <port>");
+
+        for (int i = 0; i < args.length; i += 2) {
+            switch (args[i]) {
+                case "-u":
+                    String urlString = args[i+1];
+                    String[] urls = urlString.split(",");
+                    for (String url : urls) {
+                        if (!isValidURL(url)) throw new IllegalArgumentException("Bad URL provided: "  + url);
+                    }
+                    URLS.addAll(List.of(urls));
+                    break;
+                case "-p":
+                    String portString = args[i+1];
+                    if (!isValidURLPort(portString)) throw new IllegalArgumentException("Bad PORT provided: "  + portString);
+                    proxyPort = Integer.parseInt(portString);
+                    break;
+                default:
+                    throw new IllegalArgumentException(">>> Illegal Flag\nARG FORMAT: -u <url1>,<url2>,<url3>,... -p <port>");
+            }
+        }
+    }
+
     void main(String[] args) {
-        ReverseProxy server = new ReverseProxy();
-        server.listen(9000);
+        argParse(args);
+        this.listen(proxyPort);
     }
 }
