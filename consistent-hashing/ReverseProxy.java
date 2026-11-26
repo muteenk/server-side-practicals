@@ -58,6 +58,7 @@ class Hashing {
 
 abstract class ServerHashing {
     abstract String getServer(String sessionAffinity);
+    abstract void addServer(String url);
 }
 
 
@@ -134,6 +135,10 @@ class MiniLoadBalancer {
         if (urls.isEmpty()) 
             throw new IllegalStateException("No URLs provided !");
         servers = new CopyOnWriteArrayList<>(urls);
+    }
+
+    public void addServer(String url) {
+        servers.add(url);
     }
 
     public String getNextURL() {
@@ -261,23 +266,10 @@ class ServerHandler implements HttpHandler {
 class ReverseProxy {
     Logger logger = Logger.getLogger(ReverseProxy.class.getName());
     private int proxyPort = 9000;
-    private static final List<String> URLS = new ArrayList<>();
+    private static final CopyOnWriteArrayList<String> SERVERS = new CopyOnWriteArrayList<>();
 
     private MiniLoadBalancer lb;
     private ServerHashing sh;
-             
-    public void listen() {
-        try {
-            HttpServer server = HttpServer.create(new InetSocketAddress(proxyPort), 1024);
-            server.createContext("/", new ServerHandler(lb, sh));
-            server.setExecutor(Executors.newCachedThreadPool());
-            server.start();
-            logger.log(Level.INFO, () -> "Listening at " + proxyPort);
-
-        } catch (IOException ex) {
-            logger.log(Level.SEVERE, () -> "Failed to launch: " + ex.getMessage());
-        }
-    }
 
     private static boolean isValidURL(String url) {
         try {
@@ -312,7 +304,7 @@ class ReverseProxy {
                     for (String url : urls) {
                         if (!isValidURL(url)) throw new IllegalArgumentException("Bad URL provided: "  + url);
                     }
-                    URLS.addAll(List.of(urls));
+                    SERVERS.addAll(List.of(urls));
                     break;
                 case "-p":
                     String portString = args[i+1];
@@ -325,10 +317,34 @@ class ReverseProxy {
         }
     }
 
+    private void addServer(String url) {
+        if (!isValidURL(url)) logger.log(Level.SEVERE, () -> "Invalid URL provided: " + url);
+        SERVERS.add(url);
+        lb.addServer(url);
+        sh.addServer(url);
+    }
+
+    private void removeServer(String url) {
+
+    }
+
+    public void listen() {
+        try {
+            HttpServer server = HttpServer.create(new InetSocketAddress(proxyPort), 1024);
+            server.createContext("/", new ServerHandler(lb, sh));
+            server.setExecutor(Executors.newCachedThreadPool());
+            server.start();
+            logger.log(Level.INFO, () -> "Listening at " + proxyPort);
+
+        } catch (IOException ex) {
+            logger.log(Level.SEVERE, () -> "Failed to launch: " + ex.getMessage());
+        }
+    }
+
     void main(String[] args) {
         argParse(args);
-        lb = new MiniLoadBalancer(URLS);
-        sh = new ConsistentHashing(URLS);
+        lb = new MiniLoadBalancer(SERVERS);
+        sh = new ConsistentHashing(SERVERS);
         this.listen();
     }
 }
