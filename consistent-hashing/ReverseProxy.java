@@ -164,9 +164,9 @@ class ServerHandler implements HttpHandler {
     private final MiniLoadBalancer loadBalancer;
     private final ServerHashing serverHashing;
 
-    public ServerHandler(List<String> urls) {
-        this.loadBalancer = new MiniLoadBalancer(urls);
-        this.serverHashing = new ConsistentHashing(urls);
+    public ServerHandler(MiniLoadBalancer loadBalancer, ServerHashing serverHashing) {
+        this.loadBalancer = loadBalancer;
+        this.serverHashing = serverHashing;
     }
 
     private void translateHeaders(HttpHeaders upstreamHeaders, Headers outboundHeaders) {
@@ -261,15 +261,18 @@ class ServerHandler implements HttpHandler {
 class ReverseProxy {
     Logger logger = Logger.getLogger(ReverseProxy.class.getName());
     private int proxyPort = 9000;
-    private final List<String> URLS = new ArrayList<>();
+    private static final List<String> URLS = new ArrayList<>();
+
+    private MiniLoadBalancer lb;
+    private ServerHashing sh;
              
-    public void listen(int port) {
+    public void listen() {
         try {
-            HttpServer server = HttpServer.create(new InetSocketAddress(port), 1024);
-            server.createContext("/", new ServerHandler(URLS));
+            HttpServer server = HttpServer.create(new InetSocketAddress(proxyPort), 1024);
+            server.createContext("/", new ServerHandler(lb, sh));
             server.setExecutor(Executors.newCachedThreadPool());
             server.start();
-            logger.log(Level.INFO, () -> "Listening at " + port);
+            logger.log(Level.INFO, () -> "Listening at " + proxyPort);
 
         } catch (IOException ex) {
             logger.log(Level.SEVERE, () -> "Failed to launch: " + ex.getMessage());
@@ -324,6 +327,8 @@ class ReverseProxy {
 
     void main(String[] args) {
         argParse(args);
-        this.listen(proxyPort);
+        lb = new MiniLoadBalancer(URLS);
+        sh = new ConsistentHashing(URLS);
+        this.listen();
     }
 }
